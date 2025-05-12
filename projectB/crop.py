@@ -2,41 +2,28 @@ from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
 
-TARGET_SIZE = 512  # square dimension (pixels)
+TARGET_SIZE = 512  # Square output size
 BASE_DIR = Path("assets")
 
-# Define city input and naming
-CITY_SOURCES = {
-    "shanghai": BASE_DIR / "shanghai_memories_ccl",
-    "abudhabi": BASE_DIR / "abu_dhabi_memories_ccl",
-}
+def process_all_images(base_dir):
+    # Get all JPG and jpg files recursively
+    image_files = list(base_dir.rglob("*.jpg")) + list(base_dir.rglob("*.JPG"))
 
-def process_city(city_name, src_folder):
-    out_prefix = city_name
-    files = sorted(src_folder.glob("*"))
+    print(f"✅ Found {len(image_files)} image(s) in {base_dir}")
 
-    if len(files) < 66:
-        raise ValueError(f"❌ Only found {len(files)} files in {src_folder}, need at least 66.")
-
-    print(f"✅ Processing {city_name.title()} from: {src_folder}")
-    for i, fp in enumerate(tqdm(files[:66], desc=f"Cropping {city_name}")):
+    for fp in tqdm(image_files, desc="Cropping and resizing"):
         try:
             img = Image.open(fp).convert("RGB")
             w, h = img.size
-            # Center crop to square
             side = min(w, h)
             left = (w - side) // 2
             top = (h - side) // 2
             img_sq = img.crop((left, top, left + side, top + side))
             img_sq = img_sq.resize((TARGET_SIZE, TARGET_SIZE), Image.LANCZOS)
-
-            out_path = BASE_DIR / f"{out_prefix}-{i + 1:02d}.jpg"
-            img_sq.save(out_path, quality=90)
+            img_sq.save(fp.with_suffix('.jpg'), quality=90)  # Ensure output is .jpg
         except Exception as e:
-            print(f"⚠️ Error with {fp.name}: {e}")
+            print(f"⚠️ Error processing {fp.name}: {e}")
 
 if __name__ == "__main__":
-    for city, folder in CITY_SOURCES.items():
-        process_city(city, folder)
-
-    print("\n✅ Done! Cropped images saved in assets/ as shanghai-01.jpg and abudhabi-01.jpg …")
+    process_all_images(BASE_DIR)
+    print("\n✅ Done! All images in 'assets/' cropped and resized to 512x512 while keeping their original names.")

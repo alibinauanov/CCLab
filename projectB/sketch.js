@@ -1,11 +1,26 @@
-const NUM_IMAGES = 60;
 const TARGET_VISIBLE = 60;
+const EXPLORE_THRESHOLD = 0.5; // 50% of images need to be viewed
 
-const HELP_BAR = 26;                // pixel height of the help bar
-const MARGIN   = 10;                // outer + inner spacing for the grid
+const HELP_BAR = 26;
+const MARGIN = 10;
 
-let shanghaiImgs = [], abuImgs = [];
-let currentSet = "shanghai";
+const SHANGHAI_COUNTS = {
+  friends: 31,
+  me: 12,
+  places: 23
+};
+const ABU_DHABI_COUNTS = {
+  campus: 20,
+  friends: 22,
+  outside: 24
+};
+
+let shanghaiImgs = { friends: [], me: [], places: [] };
+let abuImgs = { campus: [], friends: [], outside: [] };
+let currentSet = null;
+let currentPart = null;
+let parts = [];
+let exploredCount = 0;
 
 let tiles = [];
 let hoverTile = null;
@@ -16,15 +31,39 @@ let rippleEffect = null;
 let lastInteractionTime = 0, idleTimer = 0, idleAnimation = false;
 let autoRotateAngle = 0;
 
-/* -------- clamp helpers: keep a tile inside the canvas ------------------ */
-const clampX = (x, w) => constrain(x, MARGIN, width  - MARGIN - w);
+let state = "intro";
+let airplaneProgress = 0;
+let viewedImages = new Set();
+
+// Clamp helpers
+const clampX = (x, w) => constrain(x, MARGIN, width - MARGIN - w);
 const clampY = (y, h) => constrain(y, MARGIN, height - MARGIN - h - HELP_BAR);
 
-/* ------------------------------------------------------------------------ */
 function preload() {
-  for (let i = 1; i <= NUM_IMAGES; i++) {
-    shanghaiImgs.push(loadImage(`assets/shanghai-${nf(i, 2)}.jpg`));
-    abuImgs.push(loadImage(`assets/abudhabi-${nf(i, 2)}.jpg`));
+  for (let i = 1; i <= SHANGHAI_COUNTS.friends; i++) {
+    const num = nf(i, 2);
+    shanghaiImgs.friends.push(loadImage(`assets/adfriends-${num}.jpg`));
+  }
+  for (let i = 1; i <= SHANGHAI_COUNTS.me; i++) {
+    const num = nf(i, 2);
+    shanghaiImgs.me.push(loadImage(`assets/me-${num}.jpg`));
+  }
+  for (let i = 1; i <= SHANGHAI_COUNTS.places; i++) {
+    const num = nf(i, 2);
+    shanghaiImgs.places.push(loadImage(`assets/places-${num}.jpg`));
+  }
+  
+  for (let i = 1; i <= ABU_DHABI_COUNTS.campus; i++) {
+    const num = nf(i, 2);
+    abuImgs.campus.push(loadImage(`assets/campus-${num}.jpg`));
+  }
+  for (let i = 1; i <= ABU_DHABI_COUNTS.friends; i++) {
+    const num = nf(i, 2);
+    abuImgs.friends.push(loadImage(`assets/friends-${num}.jpg`));
+  }
+  for (let i = 1; i <= ABU_DHABI_COUNTS.outside; i++) {
+    const num = nf(i, 2);
+    abuImgs.outside.push(loadImage(`assets/outside-${num}.jpg`));
   }
 }
 
@@ -33,55 +72,73 @@ function setup() {
   colorMode(HSB, 360, 100, 100, 1);
   noStroke();
   textFont('Helvetica');
-  createImageGrid();
+  
+  parts = {
+    shanghai: [
+      { name: "Friends", key: "friends", explored: false },
+      { name: "Places", key: "places", explored: false },
+      { name: "Me", key: "me", explored: false }
+    ],
+    abu: [
+      { name: "Campus", key: "campus", explored: false },
+      { name: "Friends", key: "friends", explored: false },
+      { name: "Outside", key: "outside", explored: false }
+    ]
+  };
 }
 
-/* ====================== GRID LAYOUT ===================================== */
-function createImageGrid() {
-  tiles.length = 0;
-  const imgs = currentSet === "shanghai" ? shanghaiImgs : abuImgs;
-
-  // ensure we have ≥ TARGET_VISIBLE images
-  const allImgs = [];
-  const repeat = ceil(TARGET_VISIBLE / imgs.length);
-  for (let i = 0; i < repeat; i++) allImgs.push(...imgs);
-
-  const cols = 10, rows = 6;
-
-  // largest tile that fits width & height (4:3 ratio)
-  const maxW = (width  - MARGIN * (cols + 1)) / cols;
-  const maxH = (height - MARGIN * (rows + 1) - HELP_BAR) / rows;
-  const tileW = min(maxW, maxH / 0.75);
-  const tileH = tileW * 0.75;
-
-  /* grid starts at margin (no blank bands) */
-  let idx = 0;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      let x = MARGIN + c * (tileW + MARGIN) + random(-4, 4);
-      let y = MARGIN + r * (tileH + MARGIN) + random(-4, 4);
-      x = clampX(x, tileW);
-      y = clampY(y, tileH);
-
-      tiles.push(new MemoryTile(
-        x, y, tileW, tileH,
-        allImgs[idx % TARGET_VISIBLE], idx++
-      ));
-    }
+function draw() {
+  background(0);
+  
+  if (state === "intro") {
+    drawIntro();
+  } else if (state === "transition") {
+    drawAirplaneTransition();
+  } else {
+    drawGallery();
   }
 }
 
-/* ====================== DRAW LOOP ======================================= */
-function draw() {
+function drawIntro() {
   background(0);
+  fill(0, 0, 100);
+  textAlign(CENTER, CENTER);
+
+  textSize(48);
+  text("Memories Across Cities", width / 2, height * 0.2);
+
+  textSize(20);
+  text("by Alibi Nauanov — Spring 2025", width / 2, height * 0.28);
+
+  textAlign(LEFT, TOP);
+  let margin = 485;
+  let y = height * 0.35;
+  let description = 
+    "This is an interactive memory journal of my time in Shanghai and Abu Dhabi.\n\n" +
+    "These two cities shaped my journey during a year abroad, and this project\n" +
+    "aims to capture the essence of that experience through photographs and interaction.\n\n" +
+    "The navigation instruction is in the next page.";
+
+  textSize(16);
+  textLeading(22);
+  text(description, margin, y, width - 2 * margin, height - y - 100);
+
+  // Buttons
+  drawButton("Shanghai", width / 2 - 280, height * 0.65, 200, 60, 10);
+  drawButton("Abu Dhabi", width / 2 + 80, height * 0.65, 200, 60, 200);
+}
+
+function drawGallery() {
   drawBackgroundPattern();
+
+  drawPartNavigation();
 
   tiles.forEach(t => {
     t.update();
     t.display();
   });
 
-  // fade for set‑switch
+  // transition effect
   if (isTransitioning) {
     transitionAlpha += 5;
     fill(0, 0, 100, transitionAlpha / 255);
@@ -93,7 +150,7 @@ function draw() {
     }
   }
 
-  // ripple
+  // Ripple effect
   if (rippleEffect) {
     rippleEffect.update();
     rippleEffect.display();
@@ -101,130 +158,191 @@ function draw() {
   }
 
   // idle orbit
-  if (millis() - lastInteractionTime > 10000 && !idleAnimation) {
-    idleAnimation = true;
-    idleTimer = millis();
-  }
-  if (idleAnimation) idleOrbit();
-  else if (hoverTile === null) resetTileTargets();
-
-  drawHelpBar();
-}
-
-/* ====================== IDLE ORBIT ====================================== */
-function idleOrbit() {
-  autoRotateAngle += 0.002;
-  const cx = width / 2, cy = height / 2, radius = min(width, height) * 0.4;
-
-  tiles.forEach((t, i) => {
-    const ang = autoRotateAngle + i * TWO_PI / tiles.length;
-    t.setTarget(cx + cos(ang) * radius,
-              cy + sin(ang) * radius,
-              0.6, ang);
-
-    if (i === floor((millis() - idleTimer) / 3000) % tiles.length)
-      t.targetScale = 1.2;
-  });
-
-  if (millis() - lastInteractionTime < 10000) {
-    idleAnimation = false;
+  if (idleAnimation) {
+    idleOrbit();
+  } else if (hoverTile === null) {
     resetTileTargets();
   }
+
+  drawHelpBar();
+  
+  // continue button if enough images viewed
+  if (exploredCount >= TARGET_VISIBLE * EXPLORE_THRESHOLD && !parts[currentSet].every(p => p.explored)) {
+    drawContinueButton();
+  }
 }
 
-/* ====================== INPUT HANDLERS ================================== */
-function mouseMoved() {
-  lastInteractionTime = millis();
-
-  hoverTile = null;
-  let bestDist = 150;
-
-  tiles.forEach(t => {
-    const d = dist(mouseX, mouseY, t.cx, t.cy);
-    t.isHovered = false;
-    if (d < bestDist) {
-      bestDist = d;
-      hoverTile = t;
+function drawPartNavigation() {
+  if (!currentSet) return;
+  
+  const currentParts = parts[currentSet];
+  const buttonWidth = 120;
+  const buttonHeight = 30;
+  const startX = width/2 - (currentParts.length * buttonWidth + (currentParts.length-1)*10)/2;
+  
+  currentParts.forEach((part, i) => {
+    const x = startX + i * (buttonWidth + 10);
+    const y = 20;
+    const isCurrent = currentPart.key === part.key;
+    
+    // button text
+    fill(0, 0, 100);
+    textSize(14);
+    textAlign(CENTER, CENTER);
+    text(part.name, x + buttonWidth/2, y + buttonHeight/2);
+    
+    if (part.explored) {
+      noFill();
+      stroke(currentSet === "shanghai" ? 10 : 200, 80, 100);
+      strokeWeight(2);
+      rect(x, y, buttonWidth, buttonHeight, 5);
     }
   });
+}
 
-  if (hoverTile) {
-    hoverTile.isHovered = true;
+function drawAirplaneTransition() {
+  background(0, 0, 20);
 
-    // subtle push‑away
-    tiles.forEach(t => {
-      if (t === hoverTile) {
-        t.setTarget(t.originalX, t.originalY);
-      } else {
-        const ang = atan2(t.cy - hoverTile.cy, t.cx - hoverTile.cx);
-        const f = map(bestDist, 0, 150, 30, 0);
-        t.setTarget(t.originalX + cos(ang) * f,
-                    t.originalY + sin(ang) * f);
-      }
-    });
+  // smooth fade in effect
+  fill(0, 0, 0, map(airplaneProgress, 0, 1, 255, 0));
+  rect(0, 0, width, height);
+
+  drawClouds();
+  drawAirplane();
+
+  airplaneProgress += 0.01;
+  if (airplaneProgress >= 1) {
+    state = "gallery";
+    airplaneProgress = 0;
+    createImageGrid();
+    return;
   }
+
+  fill(0, 0, 100);
+  textSize(24);
+  textAlign(CENTER, CENTER);
+  text(`Flying to ${currentSet === "shanghai" ? "Shanghai" : "Abu Dhabi"}...`, width / 2, height - 100);
+}
+
+function drawContinueButton() {
+  let nextPart = parts[currentSet].find(p => !p.explored);
+  if (!nextPart) return;
+  
+  let btnText = `Continue to ${nextPart.name}`;
+  let btnWidth = textWidth(btnText) + 40;
+  
+  // button background
+  fill(0, 0, 100, 0.8);
+  rect(width/2 - btnWidth/2, height - HELP_BAR - 50, btnWidth, 40, 5);
+  
+  // button text
+  fill(0, 0, 0);
+  textSize(16);
+  textAlign(CENTER, CENTER);
+  text(btnText, width/2, height - HELP_BAR - 30);
 }
 
 function mousePressed() {
-  lastInteractionTime = millis();
+  if (state === "intro") {
+    const btnY = height * 2/3;
+    const btnW = 200;
+    const btnH = 60;
 
-  let clickedTile = tiles.find(t =>
-    mouseX > t.x && mouseX < t.x + t.w &&
-    mouseY > t.y && mouseY < t.y + t.h
-  );
+    const shanghaiX = width / 2 - 280;
+    const abuX = width / 2 + 81;
 
-  if (!clickedTile) { closeActive(); return; }
-  if (clickedTile === activeTile) { closeActive(); return; }
+    // check if Shanghai button clicked
+    if (mouseX > shanghaiX && mouseX < shanghaiX + btnW &&
+        mouseY > btnY && mouseY < btnY + btnH) {
+      currentSet = "shanghai";
+      currentPart = parts.shanghai[0];
+      state = "transition";
+    }
+    else if (mouseX > abuX && mouseX < abuX + btnW &&
+            mouseY > btnY && mouseY < btnY + btnH) {
+      currentSet = "abu";
+      currentPart = parts.abu[0];
+      state = "transition";
+    }
+  } 
+  else if (state === "gallery") {
+    // check if part navigation button clicked
+    if (mouseY >= 20 && mouseY <= 50) {
+      const currentParts = parts[currentSet];
+      const buttonWidth = 120;
+      const startX = width/2 - (currentParts.length * buttonWidth + (currentParts.length-1)*10)/2;
+      
+      currentParts.forEach((part, i) => {
+        const x = startX + i * (buttonWidth + 10);
+        if (mouseX >= x && mouseX <= x + buttonWidth && !part.explored) {
+          currentPart = part;
+          exploredCount = 0;
+          viewedImages.clear();
+          createImageGrid();
+          return;
+        }
+      });
+    }
+    
+    // check if continue button clicked
+    if (exploredCount >= TARGET_VISIBLE * EXPLORE_THRESHOLD && 
+        mouseX > width/2 - 100 && mouseX < width/2 + 100 &&
+        mouseY > height - HELP_BAR - 50 && mouseY < height - HELP_BAR - 10) {
+      goToNextPart();
+      return;
+    }
+    
+    lastInteractionTime = millis();
+    let clickedTile = tiles.find(t =>
+      mouseX > t.x && mouseX < t.x + t.w &&
+      mouseY > t.y && mouseY < t.y + t.h
+    );
 
-  closeActive();
-  activeTile = clickedTile;
-  activeTile.isActive = true;
-  activeTile.pulse();
-  rippleEffect = new RippleEffect(activeTile.cx, activeTile.cy, activeTile.img);
+    if (!clickedTile) { closeActive(); return; }
+    if (clickedTile === activeTile) { closeActive(); return; }
+
+    closeActive();
+    activeTile = clickedTile;
+    activeTile.isActive = true;
+    activeTile.pulse();
+    rippleEffect = new RippleEffect(activeTile.cx, activeTile.cy, activeTile.img);
+  }
 }
 
-function keyPressed() {
-  lastInteractionTime = millis();
+function createImageGrid() {
+  tiles.length = 0;
+  if (!currentPart) return;
 
-  if (key === 's' || key === 'S') switchSet("shanghai");
-  else if (key === 'a' || key === 'A') switchSet("abu");
-  else if (key === ' ')               resetTileTargets();
-  else if (key === 'r' || key === 'R') shuffleImages();
+  const imgs = currentSet === "shanghai" ? shanghaiImgs[currentPart.key] : abuImgs[currentPart.key];
+
+  const allImgs = shuffle(imgs.slice()).slice(0, TARGET_VISIBLE);
+
+  const cols = 8;
+  const rows = 5;
+
+  const maxW = (width - MARGIN * (cols + 1)) / cols;
+  const maxH = (height - MARGIN * (rows + 1) - HELP_BAR) / rows;
+  const tileSize = min(maxW, maxH);
+  const tileW = tileSize;
+  const tileH = tileSize;
+
+  const gridW = cols * tileW + (cols - 1) * MARGIN;
+  const gridH = rows * tileH + (rows - 1) * MARGIN;
+  const startX = (width - gridW) / 2 - 50;
+  const startY = (height - gridH - HELP_BAR) / 2 + 40;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      if (idx >= allImgs.length) break;
+
+      let x = startX + c * (tileW + MARGIN);
+      let y = startY + r * (tileH + MARGIN);
+      tiles.push(new MemoryTile(x, y, tileW, tileH, allImgs[idx], idx));
+    }
+  }
 }
 
-/* ====================== HELPERS ========================================= */
-function switchSet(name) {
-  if (currentSet === name) return;
-  currentSet = name;
-  isTransitioning = true;
-}
-
-function shuffleImages() {
-  const src = currentSet === "shanghai" ? shanghaiImgs : abuImgs;
-  const shuffled = shuffle(src.slice());
-  tiles.forEach((t, i) => {
-    t.img = shuffled[i % shuffled.length];
-    t.setTarget(t.originalX, t.originalY, 1, 0);
-  });
-}
-
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  createImageGrid();
-}
-
-function closeActive() {
-  if (activeTile) activeTile.isActive = false;
-  activeTile = null;
-  rippleEffect = null;
-  resetTileTargets();
-}
-
-function resetTileTargets() {
-  tiles.forEach(t => t.setTarget(t.originalX, t.originalY, 1, 0));
-}
-
-/* ====================== VISUAL HELPERS ================================== */
 function drawBackgroundPattern() {
   fill(0, 0, 20);
   beginShape();
@@ -238,8 +356,10 @@ function drawBackgroundPattern() {
 }
 
 function drawHelpBar() {
-  const msg =
-    "[A] Abu Dhabi   [S] Shanghai   [R] Shuffle   [Space] Reset   Click = open/close";
+  const msg = currentPart ? 
+    `[A] Abu Dhabi   [S] Shanghai   [R] Shuffle   [C] Circle View   Click = open/close | Current: ${currentPart.name}` :
+    "[A] Abu Dhabi   [S] Shanghai   [R] Shuffle   [C] Circle View   Click = open/close";
+  
   textSize(14);
   textAlign(CENTER, BOTTOM);
   fill(0, 0, 90, 0.8);
@@ -250,7 +370,109 @@ function drawHelpBar() {
   text(msg, width / 2, height - 6);
 }
 
-/* ====================== CLASSES ========================================= */
+function idleOrbit() {
+  autoRotateAngle += 0.002;
+
+  const cx = width / 2;
+  const cy = height / 2 + 20;
+  const radius = min(width, height) * 0.35;
+
+  tiles.forEach((t, i) => {
+    const ang = autoRotateAngle + i * TWO_PI / tiles.length;
+    const x = cx + cos(ang) * radius - t.w / 2;
+    const y = cy + sin(ang) * radius - t.h / 2;
+
+    t.setTarget(x, y, 0.8, ang);
+  });
+}
+
+function resetTileTargets() {
+  tiles.forEach(t => t.setTarget(t.originalX, t.originalY, 1, 0));
+}
+
+function closeActive() {
+  if (activeTile) activeTile.isActive = false;
+  activeTile = null;
+  rippleEffect = null;
+  resetTileTargets();
+}
+
+function keyPressed() {
+  lastInteractionTime = millis();
+
+  if (key === 's' || key === 'S') {
+    if (currentSet !== "shanghai") {
+      currentSet = "shanghai";
+      currentPart = parts.shanghai[0];
+      state = "transition";
+      airplaneProgress = 0;
+      exploredCount = 0;
+      viewedImages.clear();
+    }
+  }
+  else if (key === 'a' || key === 'A') {
+    if (currentSet !== "abu") {
+      currentSet = "abu";
+      currentPart = parts.abu[0];
+      state = "transition";
+      airplaneProgress = 0;
+      exploredCount = 0;
+      viewedImages.clear();
+    }
+  }
+  else if (key === 'r' || key === 'R') {
+    shuffleImages();
+  }
+  else if (key === 'c' || key === 'C') {
+    idleAnimation = !idleAnimation;
+    idleTimer = millis();
+    if (!idleAnimation) resetTileTargets();
+  }
+}
+
+function shuffleImages() {
+  const src = currentSet === "shanghai" ? shanghaiImgs[currentPart.key] : abuImgs[currentPart.key];
+  const shuffled = shuffle(src.slice());
+  tiles.forEach((t, i) => {
+    t.img = shuffled[i % shuffled.length];
+    t.setTarget(t.originalX, t.originalY, 1, 0);
+  });
+}
+
+function drawButton(label, x, y, w, h, hue) {
+  fill(hue, 80, 100);
+  rect(x, y, w, h, 5);
+  
+  fill(0, 0, 100);
+  textSize(20);
+  textAlign(CENTER, CENTER);
+  text(label, x + w/2, y + h/2);
+}
+
+function drawClouds() {
+  textSize(48);
+  textAlign(CENTER, CENTER);
+
+  for (let i = 0; i < 5; i++) {
+    let x = (frameCount * 0.5 + i * 200) % (width + 200) - 100;
+    let y = height / 4 + sin(frameCount * 0.02 + i) * 20;
+    text("☁️", x, y);
+  }
+}
+
+function drawAirplane() {
+  push();
+  textSize(100);
+  textAlign(CENTER, CENTER);
+  text("🛫", width * airplaneProgress, height / 2);
+  pop();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  if (state === "gallery") createImageGrid();
+}
+
 class MemoryTile {
   constructor(x, y, w, h, img, index) {
     this.originalX = x; this.originalY = y;
@@ -273,7 +495,7 @@ class MemoryTile {
     this.targetX = clampX(x, this.w);
     this.targetY = clampY(y, this.h);
     this.targetScale = s;
-    this.targetRot   = r;
+    this.targetRot = r;
   }
 
   update() {
@@ -283,7 +505,7 @@ class MemoryTile {
     this.cy = this.y + this.h / 2;
 
     this.scale = lerp(this.scale, this.targetScale, 0.1);
-    this.rot   = lerp(this.rot,   this.targetRot,   0.05);
+    this.rot = lerp(this.rot, this.targetRot, 0.05);
     if (this.pulseAmount > 0)
       this.pulseAmount = max(0, this.pulseAmount - 0.05);
   }
@@ -298,23 +520,24 @@ class MemoryTile {
 
     // fit image
     let dW, dH;
-    if (this.aspect > 1) { dW = this.w; dH = this.w / this.aspect; }
-    else                 { dH = this.h; dW = this.h * this.aspect; }
+    if (this.aspect > 1) {
+      dH = this.h;
+      dW = this.h * this.aspect;
+    } else {
+      dW = this.w;
+      dH = this.w / this.aspect;
+    }
 
     if (this.isActive) {
       tint(this.hue, 40, 100);
-      image(this.img, 0, 0, dW * 1.3, dH * 1.3);
+      image(this.img, -dW * 1.3 / 2, -dH * 1.3 / 2, dW * 1.3, dH * 1.3);
       noFill();
       strokeWeight(3 + sin(frameCount * 0.1) * 2);
       stroke(this.hue, 80, 100);
       rect(-dW * 0.65, -dH * 0.65, dW * 1.3, dH * 1.3, 5);
     } else {
       tint(this.hue, this.isHovered ? 30 : 20, 100, 0.9);
-      image(this.img, 0, 0, dW, dH);
-      noFill();
-      strokeWeight(1);
-      stroke(0, 0, 100, 0.2);
-      rect(-dW / 2, -dH / 2, dW, dH, 2);
+      image(this.img, -dW / 2, -dH / 2, dW, dH);
     }
     pop();
   }
@@ -329,11 +552,13 @@ class RippleEffect {
     this.alpha = 255; this.speed = 5;
     this.aspect = img.width / img.height;
   }
+  
   update() {
     this.r += this.speed;
     this.alpha = map(this.r, 5, this.maxR, 255, 0);
     if (this.r > this.maxR) this.r = this.maxR;
   }
+  
   display() {
     push();
     translate(this.x, this.y);
@@ -356,5 +581,6 @@ class RippleEffect {
     }
     pop();
   }
+  
   isDone() { return this.r >= this.maxR; }
 }
