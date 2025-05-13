@@ -530,11 +530,14 @@ class MemoryTile {
 
     if (this.isActive) {
       tint(this.hue, 40, 100);
-      image(this.img, -dW * 1.3 / 2, -dH * 1.3 / 2, dW * 1.3, dH * 1.3);
+      imageMode(CENTER);
+      image(this.img, 0, 0, dW, dH);
+
       noFill();
       strokeWeight(3 + sin(frameCount * 0.1) * 2);
       stroke(this.hue, 80, 100);
-      rect(-dW * 0.65, -dH * 0.65, dW * 1.3, dH * 1.3, 5);
+      rectMode(CENTER);
+      rect(0, 0, dW, dH, 5);
     } else {
       tint(this.hue, this.isHovered ? 30 : 20, 100, 0.9);
       image(this.img, -dW / 2, -dH / 2, dW, dH);
